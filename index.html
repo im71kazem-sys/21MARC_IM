@@ -1,13 +1,425 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+import { useState, useEffect } from "react";
+import { Search, BookOpen, Info, Copy, Check, Filter, Database, Tag, Wand2, Trash2, Download, FileText, Sparkles, GraduationCap, ShieldCheck, Library } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { MarcTag } from "./types";
+import { GoogleGenAI } from "@google/genai";
 
+export default function App() {
+  const [tags, setTags] = useState<MarcTag[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  // Converter State
+  const [cardInput, setCardInput] = useState("");
+  const [marcOutput, setMarcOutput] = useState("");
+  const [isConverting, setIsConverting] = useState(false);
+  const [activeTab, setActiveTab] = useState<"search" | "converter">("search");
+
+  useEffect(() => {
+    fetchCategories();
+    fetchTags();
+  }, [search, selectedCategory]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("/api/categories");
+      const data = await res.json();
+      setCategories(data);
+    } catch (err) {
+      console.error("Failed to fetch categories", err);
+    }
+  };
+
+  const fetchTags = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.append("q", search);
+      if (selectedCategory) params.append("category", selectedCategory);
+      
+      const res = await fetch(`/api/tags?${params.toString()}`);
+      const data = await res.json();
+      setTags(data);
+    } catch (err) {
+      console.error("Failed to fetch tags", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConvert = async () => {
+    if (!cardInput.trim()) return;
+    setIsConverting(true);
+    try {
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+      const model = "gemini-3-flash-preview";
+      
+      const prompt = `أنت خبير في فهرسة المكتبات بصيغة مارك 21 (MARC21). 
+      قم بتحويل بيانات بطاقة الفهرسة التالية إلى سجل مارك 21 كامل (Tags, Indicators, Subfields).
+      اجعل النتيجة منظمة وسهلة القراءة.
+      
+      البيانات:
+      ${cardInput}
+      
+      التنسيق المطلوب للنتيجة:
+      التاج | المؤشرات | الحقول الفرعية
+      مثال: 245 | 10 | $a العنوان $c المسؤولية`;
+
+      const result = await genAI.models.generateContent({
+        model,
+        contents: [{ parts: [{ text: prompt }] }],
+      });
+
+      setMarcOutput(result.text || "عذراً، لم يتمكن الذكاء الاصطناعي من معالجة الطلب.");
+    } catch (error) {
+      console.error("Conversion error:", error);
+      setMarcOutput("حدث خطأ أثناء الاتصال بالخادم. يرجى المحاولة لاحقاً.");
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
+  const exportToTxt = () => {
+    const element = document.createElement("a");
+    const file = new Blob([marcOutput], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = `MARC21_Record_${new Date().getTime()}.txt`;
+    document.body.appendChild(element);
+    element.click();
+  };
+
+  const clearConverter = () => {
+    setCardInput("");
+    setMarcOutput("");
+  };
+
+  const copyToClipboard = (text: string, id: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F1F5F9] text-[#0F172A] font-sans selection:bg-blue-100" dir="rtl">
+      {/* Top Banner */}
+      <div className="bg-[#1E293B] text-white py-2 px-4 text-center text-[10px] font-bold tracking-widest uppercase border-b border-white/10">
+        المنصة الأكاديمية المتقدمة لفهرسة مارك 21
+      </div>
+
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="bg-[#0F172A] p-3 rounded-2xl shadow-xl shadow-slate-200">
+                <Library className="text-white w-7 h-7" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black tracking-tight text-[#0F172A]">محرك بحث مارك 21</h1>
+                <div className="flex items-center gap-2 mt-1">
+                  <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
+                  <p className="text-xs text-slate-500 font-bold">نظام الفهرسة الأكاديمي الذكي</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+              <button 
+                onClick={() => setActiveTab("search")}
+                className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === "search" ? "bg-white text-blue-700 shadow-md translate-y-[-1px]" : "text-slate-500 hover:text-slate-800"}`}
+              >
+                <Search className="w-4 h-4" />
+                محرك البحث
+              </button>
+              <button 
+                onClick={() => setActiveTab("converter")}
+                className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === "converter" ? "bg-white text-blue-700 shadow-md translate-y-[-1px]" : "text-slate-500 hover:text-slate-800"}`}
+              >
+                <Wand2 className="w-4 h-4" />
+                المحول الذكي
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <AnimatePresence mode="wait">
+          {activeTab === "search" ? (
+            <motion.div 
+              key="search-tab"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="flex flex-col lg:flex-row gap-10"
+            >
+              {/* Sidebar Filters */}
+              <aside className="lg:w-72 flex-shrink-0">
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm sticky top-32">
+                  <div className="flex items-center gap-2 mb-6 text-[#0F172A] font-black border-b border-slate-100 pb-4">
+                    <Filter className="w-5 h-5 text-blue-600" />
+                    <h2 className="text-lg">هيكل الفهرسة</h2>
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setSelectedCategory("")}
+                      className={`w-full text-right px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+                        selectedCategory === "" 
+                          ? "bg-blue-600 text-white shadow-lg shadow-blue-200" 
+                          : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      جميع الحقول المتاحة
+                    </button>
+                    {categories.map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`w-full text-right px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+                          selectedCategory === cat 
+                            ? "bg-blue-600 text-white shadow-lg shadow-blue-200" 
+                            : "text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <div className="mt-10 pt-6 border-t border-slate-100">
+                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">بيانات النظام</h3>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-slate-600 font-bold">الحقول المفهرسة:</span>
+                        <span className="text-sm font-black text-blue-700">{tags.length}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+
+              {/* Search Results */}
+              <div className="flex-1">
+                <div className="relative mb-10">
+                  <div className="absolute right-5 top-1/2 -translate-y-1/2 bg-blue-50 p-2 rounded-xl">
+                    <Search className="text-blue-600 w-5 h-5" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="ابحث عن تاج، وصف، أو سبب الاختيار..."
+                    className="w-full pr-16 pl-6 py-5 bg-white border-2 border-slate-100 rounded-[2rem] shadow-xl shadow-slate-200/50 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-base font-medium"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+
+                {loading ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {[...Array(6)].map((_, i) => (
+                      <div key={i} className="h-56 bg-white border border-slate-200 rounded-3xl animate-pulse" />
+                    ))}
+                  </div>
+                ) : tags.length > 0 ? (
+                  <motion.div layout className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <AnimatePresence mode="popLayout">
+                      {tags.map((tag) => (
+                        <motion.div
+                          key={tag.id}
+                          layout
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          className="group bg-white border border-slate-200 rounded-3xl p-6 hover:border-blue-300 hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-500 flex flex-col relative overflow-hidden"
+                        >
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-[5rem] -mr-12 -mt-12 transition-all group-hover:bg-blue-600 group-hover:scale-150 duration-500 opacity-20 group-hover:opacity-10" />
+                          
+                          <div className="flex items-start justify-between mb-6 relative z-10">
+                            <div className="flex items-center gap-3">
+                              <div className="bg-[#0F172A] text-white font-mono font-black px-4 py-2 rounded-xl text-base shadow-lg shadow-slate-200 group-hover:bg-blue-700 transition-colors">
+                                {tag.tag}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-tighter">
+                                  {tag.category}
+                                </span>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => copyToClipboard(tag.indicators_example, tag.id)}
+                              className="text-slate-300 hover:text-blue-600 p-2 rounded-xl hover:bg-blue-50 transition-all border border-transparent hover:border-blue-100"
+                            >
+                              {copiedId === tag.id ? <Check className="w-5 h-5 text-emerald-500" /> : <Copy className="w-5 h-5" />}
+                            </button>
+                          </div>
+
+                          <h3 className="text-[#0F172A] text-lg font-black mb-4 leading-tight group-hover:text-blue-900 transition-colors">{tag.description}</h3>
+                          
+                          <div className="space-y-4 mt-auto relative z-10">
+                            <div className="flex gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                              <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                                <span className="font-black text-[#0F172A] ml-1">التوجيه:</span>
+                                {tag.reason}
+                              </p>
+                            </div>
+                            
+                            <div className="bg-white rounded-2xl p-4 border-2 border-slate-50 group-hover:border-blue-100 transition-all">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Tag className="w-3.5 h-3.5 text-blue-400" />
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">نموذج الحقل الفرعي</span>
+                              </div>
+                              <code className="text-xs font-mono text-blue-700 font-bold block break-all bg-blue-50/50 p-2 rounded-lg">
+                                {tag.indicators_example}
+                              </code>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </motion.div>
+                ) : (
+                  <div className="bg-white border-2 border-dashed border-slate-200 rounded-[3rem] py-32 flex flex-col items-center justify-center text-center px-6">
+                    <div className="bg-slate-50 p-6 rounded-full mb-6">
+                      <Search className="w-12 h-12 text-slate-200" />
+                    </div>
+                    <h3 className="text-[#0F172A] font-black text-xl">لا توجد سجلات مطابقة</h3>
+                    <p className="text-slate-500 mt-2 font-medium">حاول استخدام مصطلحات بحث أكاديمية أكثر دقة</p>
+                    <button onClick={() => {setSearch(""); setSelectedCategory("");}} className="mt-8 px-8 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all">إعادة الضبط</button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="converter-tab"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="max-w-5xl mx-auto"
+            >
+              <div className="bg-white border border-slate-200 rounded-[3rem] overflow-hidden shadow-2xl shadow-slate-300/50">
+                <div className="bg-[#0F172A] p-10 text-white relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+                    <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '32px 32px' }}></div>
+                  </div>
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="bg-blue-600 p-3 rounded-2xl">
+                        <Sparkles className="w-8 h-8 text-white" />
+                      </div>
+                      <h2 className="text-3xl font-black">محول الفهرسة الأكاديمي</h2>
+                    </div>
+                    <p className="text-slate-400 text-lg font-medium max-w-2xl">استخدم تقنيات الذكاء الاصطناعي لتحويل الوصف الببليوجرافي التقليدي إلى سجلات مارك 21 معيارية بدقة متناهية.</p>
+                  </div>
+                </div>
+                
+                <div className="p-10 grid grid-cols-1 lg:grid-cols-2 gap-10">
+                  {/* Input Area */}
+                  <div className="flex flex-col gap-6">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-black text-[#0F172A] flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                        البيانات المصدرية (نص حر)
+                      </label>
+                      <button 
+                        onClick={clearConverter}
+                        className="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-all"
+                        title="تفريغ الحقول"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <textarea
+                      placeholder="أدخل بيانات الكتاب هنا (مثال: اسم الكتاب، المؤلف، دار النشر، سنة النشر، عدد الصفحات، السلسلة...)"
+                      className="flex-1 min-h-[350px] p-6 bg-slate-50 border-2 border-slate-100 rounded-[2rem] focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-base leading-relaxed resize-none font-medium"
+                      value={cardInput}
+                      onChange={(e) => setCardInput(e.target.value)}
+                    />
+                    <button
+                      onClick={handleConvert}
+                      disabled={isConverting || !cardInput.trim()}
+                      className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-3 text-lg"
+                    >
+                      {isConverting ? (
+                        <>
+                          <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                          جاري التحليل الأكاديمي...
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="w-6 h-6" />
+                          توليد سجل مارك 21
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Output Area */}
+                  <div className="flex flex-col gap-6">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-black text-[#0F172A] flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                        السجل المعياري الناتج
+                      </label>
+                      {marcOutput && (
+                        <button 
+                          onClick={exportToTxt}
+                          className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-5 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all border border-emerald-100"
+                        >
+                          <Download className="w-4 h-4" />
+                          تصدير بصيغة TXT
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex-1 min-h-[350px] p-8 bg-[#0F172A] border-4 border-slate-800 rounded-[2rem] text-blue-200 font-mono text-sm leading-loose overflow-auto whitespace-pre-wrap shadow-inner">
+                      {marcOutput ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                          {marcOutput}
+                        </div>
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-600 italic">
+                          <Library className="w-12 h-12 mb-4 opacity-10" />
+                          بانتظار معالجة البيانات...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-slate-200 py-12 mt-20">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex flex-col items-center text-center">
+            <div className="bg-slate-100 p-3 rounded-2xl mb-6">
+              <Library className="w-8 h-8 text-slate-400" />
+            </div>
+            <h3 className="text-[#0F172A] font-black text-xl mb-2">محرك بحث مارك 21 التفاعلي</h3>
+            <p className="text-slate-500 font-medium mb-8 max-w-md">الأداة الأكاديمية الأولى لتبسيط عمليات الفهرسة والبحث في معايير مارك العالمية.</p>
+            
+            <div className="w-full max-w-2xl h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-8"></div>
+            
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-slate-900 font-black text-lg tracking-tight">
+                جميع الحقوق محفوظة © <span className="text-blue-700">عماد كاظم السعدي</span> 2026
+              </p>
+              <div className="flex items-center gap-4 text-xs text-slate-400 font-bold uppercase tracking-widest">
+                                <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                <span>فهرسة مكتبات</span>
+                <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                <span>مارك 21</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
